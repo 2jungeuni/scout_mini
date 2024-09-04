@@ -4,54 +4,75 @@ import numpy as np
 
 # ros
 import rospy
-from visualization_msgs.msg import Marker
+from nav_msgs.msg import Path
+from geometry_msgs.msg import PoseStamped
 
 
 class Trajectory:
-    def __init__(self, hz=10):
-        self.marker_id = 0
-        self.num_points = 100
-        self.marker_pub = rospy.Publisher('/transformed_points_marker', Marker, queue_size=self.num_points)
-        self.set_global_path()
+    def __init__(self):
+        rospy.init_node("trajectory_planning")
+        self.idx = 0
+        self.horizon = 20
+        self.num_points = 1000
+        self.traj_pub = rospy.Publisher('/waypoints', Path, queue_size=10)
+        self.set_global_path("circle")  # type: circle, infinity
 
-    def set_global_path(self):
-        radius = 8
-        x, y = 8, 0   # center of circle
-        theta = np.linspace(-np.pi, np.pi, self.num_points)
-        self.path = np.array([(radius * np.cos(angle) + x, radius * np.sin(angle) + y) for angle in theta])
-        self.publish_waypoints(self.path)
+    def set_global_path(self, type):
+        if type == "circle":
+            radius = 8
+            x, y = 8, 0   # center of circle
+            theta = np.linspace(-np.pi, np.pi, self.num_points)
+            self.waypoints = np.array([(radius * np.cos(angle) + x, radius * np.sin(angle) + y) for angle in theta])
+        elif type == "infinity":
+            a = 20  # scaling facator
+            theta = np.linspace(0, 2 * np.pi, self.num_points)
+            self.waypoints = np.array([(a * np.sin(angle), a * np.sin(angle) * np.cos(angle)) for angle in theta])
 
-    def publish_waypoints(self, points):
-        for point in points:
-            print(point)
-            marker = Marker()
-            marker.header.frame_id = "base_link"
-            marker.header.stamp = rospy.Time.now()
-            marker.id = self.marker_id
-            marker.type = Marker.SPHERE
-            marker.action = Marker.ADD
-            marker.pose.position.x = point[0]
-            marker.pose.position.y = point[1]
-            marker.pose.position.z = 0.0
-            marker.pose.orientation.w = 1.0
+    def publish_waypoints(self):
+        path = Path()
+        path.header.frame_id = "base_link"
+        path.header.stamp = rospy.Time.now()
 
-            marker.scale.x = 1
-            marker.scale.y = 1
-            marker.scale.z = 1
-            marker.color.r = 0.0
-            marker.color.g = 1.0
-            marker.color.b = 0.0
-            marker.color.a = 1.0
+        end_idx = self.idx + self.horizon
+        if end_idx >= len(self.waypoints):
+            self.idx = 0
+            end_idx = self.idx + self.horizon
 
-            self.marker_pub.publish(marker)
+        for point in self.waypoints[self.idx:end_idx]:
+            pose_stamped = PoseStamped()
+            pose_stamped.header.frame_id = "base_link"
+            pose_stamped.header.stamp = rospy.Time.now()
+            pose_stamped.pose.position.x = point[0]
+            pose_stamped.pose.position.y = point[1]
+            pose_stamped.pose.position.z = 0.0
+            pose_stamped.pose.orientation.w = 1.0  # No rotation
+            path.poses.append(pose_stamped)
 
-            self.marker_id += 1
+        self.traj_pub.publish(path)
+
+        self.idx += 1
+
+    # def visualize_waypoints(self):
+    #     path = Path()
+    #     path.header.frame_id = "base_link"
+    #     path.header.stamp = rospy.Time.now()
+    #
+    #     for point in self.waypoints:
+    #         pose_stamped = PoseStamped()
+    #         pose_stamped.header.frame_id = "base_link"
+    #         pose_stamped.header.stamp = rospy.Time.now()
+    #         pose_stamped.pose.position.x = point[0]
+    #         pose_stamped.pose.position.y = point[1]
+    #         pose_stamped.pose.position.z = 0.0
+    #         pose_stamped.pose.orientation.w = 1.0  # No rotation
+    #         path.poses.append(pose_stamped)
+    #
+    #     self.vis_pub.publish(path)
 
 
 if __name__ == "__main__":
-    hz = 50
-    rospy.init_node("trajectory_planning")
-    node = Trajectory(hz=hz)
-    rate = rospy.Rate(hz)                   # 50 hz
+    planner = Trajectory()
+    rate = rospy.Rate(50)
     while not rospy.is_shutdown():
+        planner.publish_waypoints()
         rate.sleep()
